@@ -41,11 +41,9 @@ export async function POST(request: Request) {
 
     if (insertError) throw insertError;
 
-    // Fetch posts
-    const posts = await fetchUserTimeline(
-      user.id,
-      profile?.posts_to_analyze || 50
-    );
+    // Fetch posts — cap at 150 to avoid excessive API calls and token overflow
+    const postsToFetch = Math.min(profile?.posts_to_analyze || 50, 150);
+    const posts = await fetchUserTimeline(user.id, postsToFetch);
 
     // Cache posts
     for (const post of posts) {

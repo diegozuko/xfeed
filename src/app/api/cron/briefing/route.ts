@@ -41,11 +41,9 @@ export async function GET(request: Request) {
 
   for (const profile of users) {
     try {
-      // Fetch posts
-      const posts = await fetchUserTimeline(
-        profile.id,
-        profile.posts_to_analyze || 50
-      );
+      // Fetch posts — cap at 150 to avoid token overflow
+      const postsToFetch = Math.min(profile.posts_to_analyze || 50, 150);
+      const posts = await fetchUserTimeline(profile.id, postsToFetch);
 
       // Generate briefing
       const content = await generateBriefing(posts, {
