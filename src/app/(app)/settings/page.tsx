@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,9 +17,19 @@ import {
   UserMinus,
   Save,
   Check,
+  Sparkles,
+  Plus,
   Palette,
 } from "lucide-react";
 import Link from "next/link";
+
+interface AccountSuggestion {
+  username: string;
+  name: string;
+  reason: string;
+  score: number;
+  source: "timeline" | "curated";
+}
 
 const AVAILABLE_TOPICS = [
   "markets",
@@ -55,7 +65,28 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [newFavorite, setNewFavorite] = useState("");
   const [newIgnored, setNewIgnored] = useState("");
+  const [suggestions, setSuggestions] = useState<AccountSuggestion[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [themeId, setThemeId] = useState("golden");
+
+  const loadSuggestions = useCallback(async () => {
+    setLoadingSuggestions(true);
+    try {
+      const res = await fetch("/api/accounts/suggest");
+      if (res.ok) {
+        const data = await res.json();
+        setSuggestions(data.suggestions || []);
+      }
+    } catch {
+      // silently fail — suggestions are optional
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (profile) loadSuggestions();
+  }, [profile, loadSuggestions]);
 
   // Load saved theme on mount
   useState(() => {
@@ -64,6 +95,15 @@ export default function SettingsPage() {
       if (saved) setThemeId(saved);
     }
   });
+
+  function addSuggestedAccount(username: string) {
+    if (!profile) return;
+    const updated = [...(profile.favorite_accounts || []), username];
+    updateProfile({ favorite_accounts: updated });
+    setSuggestions((prev) =>
+      prev.filter((s) => s.username.toLowerCase() !== username.toLowerCase())
+    );
+  }
 
   if (loading || !profile) {
     return (
@@ -358,6 +398,47 @@ export default function SettingsPage() {
             </Badge>
           ))}
         </div>
+
+        {/* Suggested Accounts */}
+        {suggestions.length > 0 && (
+          <div className="mt-5 pt-5 border-t border-border">
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="w-4 h-4 text-accent-light" />
+              <span className="text-sm font-medium">Suggested accounts</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {suggestions.slice(0, 12).map((s) => (
+                <button
+                  key={s.username}
+                  onClick={() => addSuggestedAccount(s.username)}
+                  className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-card-hover hover:bg-border/50 transition-colors text-left cursor-pointer group"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {s.name}
+                    </p>
+                    <p className="text-xs text-muted truncate">
+                      @{s.username}
+                      {s.source === "timeline" ? (
+                        <span className="ml-1.5 text-accent-light">
+                          {s.reason}
+                        </span>
+                      ) : (
+                        <span className="ml-1.5 opacity-60">{s.reason}</span>
+                      )}
+                    </p>
+                  </div>
+                  <Plus className="w-4 h-4 text-muted group-hover:text-accent-light shrink-0 transition-colors" />
+                </button>
+              ))}
+            </div>
+            {loadingSuggestions && (
+              <p className="text-xs text-muted mt-2 animate-pulse">
+                Loading suggestions...
+              </p>
+            )}
+          </div>
+        )}
       </Card>
 
       <Card>
@@ -404,7 +485,7 @@ export default function SettingsPage() {
               label="Posts to analyze"
               type="number"
               min={10}
-              max={100}
+              max={200}
               value={profile.posts_to_analyze}
               onChange={(e) =>
                 updateProfile({

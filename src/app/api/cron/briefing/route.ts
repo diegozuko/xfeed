@@ -43,9 +43,10 @@ export async function GET(request: Request) {
 
   for (const profile of users) {
     try {
+      const postsToFetch = Math.min(profile.posts_to_analyze || 50, 150);
       const posts = await fetchFeedViaSocialData(
         profile.id,
-        profile.posts_to_analyze || 50
+        postsToFetch
       );
 
       // Generate briefing

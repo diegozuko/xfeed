@@ -27,7 +27,10 @@ export interface AudioScript {
   podcastScript: string;
 }
 
-// --- Filtering & Ranking ---
+const MAX_POSTS_TO_RANK = 200;
+const MAX_POSTS_FOR_AI = 50;
+const MAX_POST_TEXT_LENGTH = 280;
+const BATCH_SIZE = 20;
 
 function filterAndRankPosts(posts: TwitterPost[]): TwitterPost[] {
   return posts
@@ -37,37 +40,32 @@ function filterAndRankPosts(posts: TwitterPost[]): TwitterPost[] {
       if (post.type === "retweet") return false;
       return true;
     })
+    .slice(0, MAX_POSTS_TO_RANK)
     .sort((a, b) => scorePost(b) - scorePost(a));
 }
 
 function scorePost(post: TwitterPost): number {
   let score = 0;
-
-  // Engagement (log scale prevents viral posts from drowning quality content)
   score += Math.log1p(post.likes) * 2;
   score += Math.log1p(post.retweets) * 3;
   score += Math.log1p(post.replies) * 1.5;
   score += Math.log1p(post.views) * 0.3;
-
-  // Content quality signals
   if (post.hasLinks) score += 5;
   if (post.text.length > 100) score += 3;
   if (post.text.length > 280) score += 2;
-
-  // Recency
   const hoursAgo =
     (Date.now() - new Date(post.createdAt).getTime()) / (1000 * 60 * 60);
   if (hoursAgo < 3) score += 15;
   else if (hoursAgo < 6) score += 10;
   else if (hoursAgo < 12) score += 5;
   else if (hoursAgo < 24) score += 2;
-
   return score;
 }
 
-// --- Batch Insight Extraction (inspired by keeping-tabs) ---
-
-const BATCH_SIZE = 20;
+function truncateText(text: string): string {
+  if (text.length <= MAX_POST_TEXT_LENGTH) return text;
+  return text.slice(0, MAX_POST_TEXT_LENGTH) + "...";
+}
 
 async function extractInsightsFromBatch(
   posts: TwitterPost[],
@@ -78,7 +76,7 @@ async function extractInsightsFromBatch(
   const postsText = posts
     .map(
       (p, i) =>
-        `[Post ${batchIndex * BATCH_SIZE + i + 1}] @${p.authorUsername}: "${p.text}" (❤${p.likes} 🔁${p.retweets} 👁${p.views})\nURL: ${p.postUrl}`
+        `[Post ${batchIndex * BATCH_SIZE + i + 1}] @${p.authorUsername}: "${truncateText(p.text)}" (❤${p.likes} 🔁${p.retweets} 👁${p.views})\nURL: ${p.postUrl}`
     )
     .join("\n\n");
 
@@ -117,7 +115,12 @@ postIndices refers to the [Post N] numbers. If no posts contain insights, return
   try {
     const result = JSON.parse(completion.choices[0].message.content || "{}");
     return (result.insights || []).map(
-      (insight: { theme: string; summary: string; confidence: string; postIndices: number[] }) => ({
+      (insight: {
+        theme: string;
+        summary: string;
+        confidence: string;
+        postIndices: number[];
+      }) => ({
         theme: insight.theme,
         summary: insight.summary,
         confidence: insight.confidence as "high" | "medium" | "low",
@@ -135,8 +138,6 @@ postIndices refers to the [Post N] numbers. If no posts contain insights, return
   }
 }
 
-// --- Main Briefing Generation ---
-
 export async function generateBriefing(
   posts: TwitterPost[],
   options: {
@@ -152,9 +153,8 @@ export async function generateBriefing(
   } = options;
 
   const rankedPosts = filterAndRankPosts(posts);
-  const topPosts = rankedPosts.slice(0, 60);
+  const topPosts = rankedPosts.slice(0, MAX_POSTS_FOR_AI);
 
-  // Step 1: Extract insights in batches
   const allInsights: ExtractedInsight[] = [];
   for (let i = 0; i < topPosts.length; i += BATCH_SIZE) {
     const batch = topPosts.slice(i, i + BATCH_SIZE);
@@ -167,7 +167,6 @@ export async function generateBriefing(
     allInsights.push(...batchInsights);
   }
 
-  // Step 2: Synthesize insights into briefing
   const insightsForSynthesis = allInsights
     .filter((i) => i.confidence !== "low")
     .map(
@@ -176,23 +175,38 @@ export async function generateBriefing(
     )
     .join("\n");
 
+  const topicFilter =
+    priorityTopics.length > 0
+      ? `\nPriority topics the user cares about: ${priorityTopics.join(", ")}`
+      : "";
+
+  const langLabel =
+    language === "es"
+      ? "Spanish"
+      : language === "pt"
+        ? "Portuguese"
+        : "English";
+
   const completion = await getOpenAI().chat.completions.create({
     model: "gpt-4o",
     temperature: 0.4,
     messages: [
       {
         role: "system",
-        content: `You are XFeed, an expert content curator creating a daily briefing from extracted social media insights.
-Language: ${language === "es" ? "Spanish" : "English"}
-Tone: ${tone}
+        content: `You are XFeed, an expert content curator. Your job is to take extracted insights from the user's X/Twitter timeline and produce a crisp briefing — like a person who quickly scrolled through X and extracted the key updates.
 
-Rules:
-- The Quick Brief should feel like a morning news flash: punchy, fast, emoji-prefixed bullets.
-- The Smart Summary should read like a premium newsletter: grouped by theme, with context and why-it-matters.
-- The Deep Dive should only exist if one topic truly dominates and deserves extra analysis.
-- Deduplicate overlapping insights. Merge related items.
-- Be specific: names, numbers, quotes when available.
-- Do NOT just list posts. Create an intelligent editorial overview.`,
+STYLE RULES:
+- BREADTH over depth: cover as many distinct stories/news items as possible (aim for 8–15 items).
+- Each item gets 1–2 sentences MAX. Be precise and factual.
+- Do NOT write long paragraphs or deep dives on any single topic.
+- Sound like a sharp, well-informed friend giving you a rapid-fire update.
+- Lead with the most important/surprising facts. No filler.
+- If a number, name, date, or valuation is mentioned, include it exactly.
+- Group items loosely by theme but keep each one short.
+- Skip noise, promotional tweets, and low-substance opinions.
+
+Language: ${langLabel}
+Tone: ${tone}${topicFilter}`,
       },
       {
         role: "user",
@@ -202,12 +216,14 @@ ${insightsForSynthesis}
 
 Generate JSON:
 {
-  "quickBrief": "5-10 emoji-prefixed bullets. The most important items. Readable in 30-60 seconds.",
-  "smartSummary": "Well-structured markdown summary grouped by topic. Each topic: heading (##), 2-3 sentences of context, why it matters, key accounts mentioned. Premium newsletter quality.",
-  "deepDive": "If one topic dominates, write an extended analysis (what happened, who said what, implications). Otherwise null.",
-  "topics": ["main", "topics", "as", "short", "labels"],
-  "topAccounts": ["most", "relevant", "usernames"]
-}`,
+  "quickBrief": "10-15 bullet points. Each starts with a relevant emoji. Each bullet is ONE concise sentence capturing a distinct story or update. Readable in 60-90 seconds. Cover as many different topics as possible.",
+  "smartSummary": "Group the updates into 4-6 theme sections. Each section has a bold heading and 2-4 bullet points underneath (one sentence each). Think: rapid news ticker grouped by category. Use markdown formatting.",
+  "deepDive": null,
+  "topics": ["array", "of", "5-8", "topic", "tags"],
+  "topAccounts": ["array", "of", "most", "relevant", "usernames"]
+}
+
+IMPORTANT: deepDive should always be null. Focus on breadth and precision. Do not repeat the same story in quickBrief and smartSummary — they should complement each other.`,
       },
     ],
     response_format: { type: "json_object" },
@@ -217,14 +233,12 @@ Generate JSON:
   return {
     quickBrief: result.quickBrief || "",
     smartSummary: result.smartSummary || "",
-    deepDive: result.deepDive || null,
+    deepDive: null,
     topics: result.topics || [],
     topAccounts: result.topAccounts || [],
     insights: allInsights,
   };
 }
-
-// --- Audio Script Generation ---
 
 export async function generateAudioScript(
   briefing: BriefingContent,
@@ -232,28 +246,38 @@ export async function generateAudioScript(
 ): Promise<AudioScript> {
   const { language = "es", tone = "professional" } = options;
 
+  const langLabel =
+    language === "es"
+      ? "Spanish"
+      : language === "pt"
+        ? "Portuguese"
+        : "English";
+
   const completion = await getOpenAI().chat.completions.create({
     model: "gpt-4o",
     temperature: 0.5,
     messages: [
       {
         role: "system",
-        content: `You write scripts for audio briefings — like a short podcast episode.
-Language: ${language === "es" ? "Spanish" : "English"}
-Tone: ${tone}, clear, natural, dynamic.
+        content: `You write scripts for audio briefings — like a quick news flash from someone who just scrolled through X/Twitter.
 
-Rules for audio scripts:
-- Short sentences. Easy to follow while driving or exercising.
-- Natural transitions between topics (no "bullet 1, bullet 2").
-- Avoid lists — use narrative flow instead.
-- Sound conversational, NOT robotic.
-- Prioritize auditory comprehension.
-- Start with a brief greeting and date context.
-- End with a quick wrap-up.`,
+Language: ${langLabel}
+Tone: ${tone}, clear, natural, rapid.
+
+Rules:
+- Cover ALL the stories mentioned in the briefing — breadth is key.
+- Each story gets 1-2 sentences spoken aloud. Move on quickly.
+- Natural transitions but fast-paced. No lengthy intros or outros.
+- Sound like a sharp, well-informed friend giving you the quick rundown.
+- Include specific numbers, names, and facts.
+- Short sentences. Easy to follow while driving or walking.
+- Start with a brief "Here's what's happening on X right now" greeting.
+- End with a 1-sentence wrap-up.
+- Do NOT go deep on any single story — the value is the breadth.`,
       },
       {
         role: "user",
-        content: `Here's the briefing content to convert to audio scripts:
+        content: `Here's the briefing to convert to audio:
 
 QUICK BRIEF:
 ${briefing.quickBrief}
@@ -261,12 +285,10 @@ ${briefing.quickBrief}
 SMART SUMMARY:
 ${briefing.smartSummary}
 
-${briefing.deepDive ? `DEEP DIVE:\n${briefing.deepDive}` : ""}
-
 Generate a JSON response:
 {
-  "flashScript": "A 2-4 minute script. Direct, dynamic, covers the highlights. About 300-500 words.",
-  "podcastScript": "A 5-8 minute script. More conversational, with smooth transitions. About 700-1100 words."
+  "flashScript": "A 2-3 minute script. Rapid-fire, covers ALL the highlights. About 300-450 words. Every story gets mentioned.",
+  "podcastScript": "A 4-6 minute script. Slightly more conversational but still covers everything. About 600-900 words. Breadth first."
 }`,
       },
     ],

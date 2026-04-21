@@ -46,19 +46,14 @@ export async function POST(request: Request) {
 
     if (insertError) throw insertError;
 
-    // Fetch posts: try SocialData first, fallback to Twitter API
+    // Fetch posts: try SocialData first, fallback to Twitter API (cap at 150)
+    const postsToFetch = Math.min(profile?.posts_to_analyze || 50, 150);
     let posts: TwitterPost[];
     try {
-      posts = await fetchFeedViaSocialData(
-        user.id,
-        profile?.posts_to_analyze || 50
-      );
+      posts = await fetchFeedViaSocialData(user.id, postsToFetch);
     } catch (sdError) {
       console.warn("SocialData fetch failed, trying Twitter API:", sdError);
-      const legacyPosts = await fetchUserTimeline(
-        user.id,
-        profile?.posts_to_analyze || 50
-      );
+      const legacyPosts = await fetchUserTimeline(user.id, postsToFetch);
       posts = legacyPosts.map((p) => ({
         ...p,
         authorAvatar: "",
