@@ -4,26 +4,56 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Zap } from "lucide-react";
+import { Zap, AlertCircle } from "lucide-react";
 import Link from "next/link";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const supabase = createClient();
 
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signInWithOtp({
+    setError(null);
+
+    // Try custom email endpoint first (no rate limits)
+    const res = await fetch("/api/auth/magic-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+
+    if (res.ok) {
+      setLoading(false);
+      setSent(true);
+      return;
+    }
+
+    // Fallback to Supabase built-in
+    const { error: supaError } = await supabase.auth.signInWithOtp({
       email,
       options: {
         emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     });
+
     setLoading(false);
-    if (!error) setSent(true);
+
+    if (supaError) {
+      if (supaError.message.includes("rate limit")) {
+        setError(
+          "Too many login attempts. Please wait a minute and try again."
+        );
+      } else {
+        setError(supaError.message);
+      }
+      return;
+    }
+
+    setSent(true);
   }
 
   async function handleGoogleLogin() {
@@ -54,9 +84,25 @@ export default function LoginPage() {
             <p className="text-sm text-muted">
               We sent a magic link to <strong>{email}</strong>
             </p>
+            <button
+              onClick={() => {
+                setSent(false);
+                setError(null);
+              }}
+              className="text-xs text-muted hover:text-foreground transition-colors mt-2 cursor-pointer"
+            >
+              Use a different email
+            </button>
           </div>
         ) : (
           <div className="space-y-4">
+            {error && (
+              <div className="flex items-start gap-2 bg-error/10 border border-error/20 rounded-lg p-3">
+                <AlertCircle className="w-4 h-4 text-error shrink-0 mt-0.5" />
+                <p className="text-sm text-error">{error}</p>
+              </div>
+            )}
+
             <Button
               variant="secondary"
               size="lg"
@@ -98,7 +144,10 @@ export default function LoginPage() {
                 type="email"
                 placeholder="you@email.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setError(null);
+                }}
                 required
               />
               <Button
