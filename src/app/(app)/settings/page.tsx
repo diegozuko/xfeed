@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useProfile } from "@/lib/hooks/use-profile";
+import { ThemeSelector } from "@/components/briefing/theme-selector";
 import {
   AtSign,
   MessageCircle,
@@ -16,6 +17,7 @@ import {
   UserMinus,
   Save,
   Check,
+  Palette,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -53,6 +55,15 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [newFavorite, setNewFavorite] = useState("");
   const [newIgnored, setNewIgnored] = useState("");
+  const [themeId, setThemeId] = useState("golden");
+
+  // Load saved theme on mount
+  useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("xfeed_theme");
+      if (saved) setThemeId(saved);
+    }
+  });
 
   if (loading || !profile) {
     return (
@@ -267,6 +278,24 @@ export default function SettingsPage() {
             </select>
           </div>
         </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Palette className="w-5 h-5" /> Briefing Theme
+          </CardTitle>
+        </CardHeader>
+        <p className="text-sm text-muted mb-4">
+          Choose how your daily briefing looks in the newspaper view.
+        </p>
+        <ThemeSelector
+          currentTheme={themeId}
+          onSelect={(id) => {
+            setThemeId(id);
+            localStorage.setItem("xfeed_theme", id);
+          }}
+        />
       </Card>
 
       <Card>

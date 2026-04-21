@@ -61,12 +61,12 @@ Fill in your credentials in `.env.local`.
 - Enable Google OAuth in Auth > Providers (optional)
 - Copy your project URL and keys to `.env.local`
 
-4. **Setup Twitter API**
+4. **Setup SocialData.tools (recommended)** or Twitter API
 
-- Go to [developer.twitter.com](https://developer.twitter.com)
-- Create a project with OAuth 2.0 enabled
-- Set callback URL: `http://localhost:3000/api/auth/twitter/callback`
-- Copy Client ID and Secret to `.env.local`
+- Sign up at [socialdata.tools](https://socialdata.tools)
+- Get your API key and add to `.env.local` as `SOCIALDATA_API_KEY`
+- This is the primary tweet fetcher — no Twitter API tier restrictions, ~$0.001/request
+- Alternatively, use Twitter API: go to [developer.twitter.com](https://developer.twitter.com), create OAuth 2.0 project, set callback to `http://localhost:3000/api/auth/twitter/callback`
 
 5. **Setup Telegram Bot**
 
@@ -108,7 +108,8 @@ src/
     │   ├── summarizer.ts  # Content filtering + AI summaries
     ���   └── tts.ts         # Text-to-speech generation
     ├── twitter/
-    │   └── client.ts      # Twitter API client + feed fetch
+    │   ├── socialdata.ts  # SocialData.tools fetcher (primary)
+    │   └── client.ts      # Twitter API client (fallback)
     ├── telegram/
     │   ���── client.ts      # Telegram bot messaging
     ├── supabase/
@@ -117,18 +118,36 @@ src/
     │   └── middleware.ts   # Auth middleware
     ├── hooks/
     │   └── use-profile.ts # Profile hook
+    ├── themes.ts          # 10 design themes for newspaper view
     └── types.ts           # TypeScript types
 ```
 
-## Twitter API Limitations
+## Tweet Fetching Strategy
 
-| Tier | Timeline Access | Cost |
-|------|----------------|------|
-| Free | No timeline read | $0 |
-| Basic | 10K reads/month | $100/mo |
-| Pro | 1M reads/month | $5000/mo |
+**Primary: SocialData.tools** — No Twitter API tier restrictions. Uses search endpoints to fetch recent tweets from accounts in the user's "Favorite Accounts" list. ~$0.001/request, reliable, and works without Twitter OAuth.
 
-**Fallback mode**: If the home timeline endpoint is unavailable (Free tier), XFeed fetches tweets from accounts listed in the user's "Favorite Accounts" settings. This works with lower API tiers but requires manual account configuration.
+**Fallback: Twitter API v2** — Used when SocialData is unavailable. Requires Basic tier ($100/mo) for home timeline, or fetches from favorite accounts with lower tiers.
+
+The system automatically falls back from SocialData → Twitter API → error if both fail.
+
+## Briefing Themes
+
+10 built-in design themes for the newspaper view:
+
+| Theme | Style |
+|-------|-------|
+| Midnight | Dark, modern, indigo accents |
+| Broadsheet | Classic newspaper, serif, double rules |
+| Swiss | Helvetica, red accent, grid-based |
+| Bauhaus | Bold geometry, primary colors |
+| Terminal | Green-on-black hacker aesthetic |
+| Ink | Warm paper, elegant serif |
+| Neon | Cyberpunk, electric magenta |
+| Golden | Premium dark, gold accents (default) |
+| Editorial | Magazine style, bold headers |
+| Arctic | Icy blue, ultra-clean |
+
+Themes are switchable from the Briefings page or Settings. Stored in localStorage.
 
 ## Audio TTS
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { fetchUserTimeline } from "@/lib/twitter/client";
+import { fetchFeedViaSocialData } from "@/lib/twitter/socialdata";
 import { generateBriefing, generateAudioScript } from "@/lib/ai/summarizer";
 import { generateAndStoreAudio } from "@/lib/ai/tts";
 import {
@@ -8,6 +8,8 @@ import {
   sendTelegramAudio,
   formatBriefingForTelegram,
 } from "@/lib/telegram/client";
+
+export const maxDuration = 120;
 
 /**
  * Cron job to generate and send briefings for users
@@ -31,7 +33,7 @@ export async function GET(request: Request) {
     .select("*")
     .eq("auto_send_telegram", true)
     .eq("telegram_connected", true)
-    .not("x_access_token", "is", null);
+    .not("favorite_accounts", "eq", "{}");
 
   if (!users || users.length === 0) {
     return NextResponse.json({ message: "No users to process" });
@@ -41,8 +43,7 @@ export async function GET(request: Request) {
 
   for (const profile of users) {
     try {
-      // Fetch posts
-      const posts = await fetchUserTimeline(
+      const posts = await fetchFeedViaSocialData(
         profile.id,
         profile.posts_to_analyze || 50
       );

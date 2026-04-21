@@ -1,13 +1,22 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-
-import { Card, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { NewspaperView } from "@/components/briefing/newspaper";
+import { ThemeSelector } from "@/components/briefing/theme-selector";
 import { createClient } from "@/lib/supabase/client";
-import { Send, Headphones, Clock, ArrowLeft } from "lucide-react";
+import {
+  Send,
+  Headphones,
+  Clock,
+  Newspaper,
+  LayoutList,
+  Palette,
+  ChevronDown,
+} from "lucide-react";
 import Link from "next/link";
 
 interface Briefing {
@@ -25,22 +34,28 @@ interface Briefing {
   created_at: string;
 }
 
+type ViewMode = "newspaper" | "cards";
+
 export default function BriefingsPage() {
   const searchParams = useSearchParams();
   const selectedId = searchParams.get("id");
   const [briefings, setBriefings] = useState<Briefing[]>([]);
   const [selected, setSelected] = useState<Briefing | null>(null);
   const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState<ViewMode>("newspaper");
+  const [themeId, setThemeId] = useState("golden");
+  const [showThemes, setShowThemes] = useState(false);
   const supabase = createClient();
 
   useEffect(() => {
     loadBriefings();
+    const saved = localStorage.getItem("xfeed_theme");
+    if (saved) setThemeId(saved);
   }, []);
 
   useEffect(() => {
     if (selectedId && briefings.length > 0) {
-      const found = briefings.find((b) => b.id === selectedId);
-      setSelected(found || briefings[0]);
+      setSelected(briefings.find((b) => b.id === selectedId) || briefings[0]);
     } else if (briefings.length > 0) {
       setSelected(briefings[0]);
     }
@@ -55,6 +70,11 @@ export default function BriefingsPage() {
       .limit(20);
     if (data) setBriefings(data);
     setLoading(false);
+  }
+
+  function handleThemeChange(id: string) {
+    setThemeId(id);
+    localStorage.setItem("xfeed_theme", id);
   }
 
   if (loading) {
@@ -82,18 +102,69 @@ export default function BriefingsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Briefings</h1>
-        <div className="flex items-center gap-2 text-sm text-muted">
-          <Clock className="w-4 h-4" />
-          {new Date(selected.created_at).toLocaleString()}
+    <div className="space-y-4">
+      {/* Controls bar */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold">Briefings</h1>
+          <div className="flex items-center gap-1 text-xs text-muted">
+            <Clock className="w-3.5 h-3.5" />
+            {new Date(selected.created_at).toLocaleString()}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* View toggle */}
+          <div className="flex bg-card border border-border rounded-lg p-0.5">
+            <button
+              onClick={() => setViewMode("newspaper")}
+              className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                viewMode === "newspaper"
+                  ? "bg-accent/10 text-accent-light"
+                  : "text-muted hover:text-foreground"
+              }`}
+            >
+              <Newspaper className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setViewMode("cards")}
+              className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                viewMode === "cards"
+                  ? "bg-accent/10 text-accent-light"
+                  : "text-muted hover:text-foreground"
+              }`}
+            >
+              <LayoutList className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Theme button */}
+          {viewMode === "newspaper" && (
+            <button
+              onClick={() => setShowThemes(!showThemes)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded-lg text-xs font-medium text-muted hover:text-foreground transition-colors cursor-pointer"
+            >
+              <Palette className="w-3.5 h-3.5" />
+              Theme
+              <ChevronDown
+                className={`w-3 h-3 transition-transform ${showThemes ? "rotate-180" : ""}`}
+              />
+            </button>
+          )}
+
+          {selected.audio_url && (
+            <Link href={`/audio?id=${selected.id}`}>
+              <Button size="sm" variant="secondary">
+                <Headphones className="w-3.5 h-3.5" />
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
 
-      {/* Briefing tabs/list */}
+      {/* Date tabs */}
       {briefings.length > 1 && (
-        <div className="flex gap-2 overflow-x-auto pb-2">
+        <div className="flex gap-2 overflow-x-auto pb-1">
           {briefings.map((b) => (
             <button
               key={b.id}
@@ -110,20 +181,25 @@ export default function BriefingsPage() {
         </div>
       )}
 
-      {/* Meta */}
-      <div className="flex flex-wrap items-center gap-3">
+      {/* Theme selector */}
+      {showThemes && viewMode === "newspaper" && (
+        <Card className="!p-4">
+          <p className="text-xs font-medium text-muted mb-3 uppercase tracking-wider">
+            Choose a design
+          </p>
+          <ThemeSelector
+            currentTheme={themeId}
+            onSelect={handleThemeChange}
+          />
+        </Card>
+      )}
+
+      {/* Meta badges */}
+      <div className="flex flex-wrap items-center gap-2">
         <Badge variant="accent">{selected.posts_analyzed} posts</Badge>
         {selected.topics.map((topic) => (
           <Badge key={topic}>{topic}</Badge>
         ))}
-        {selected.audio_url && (
-          <Link href={`/audio?id=${selected.id}`}>
-            <Badge variant="success">
-              <Headphones className="w-3 h-3 mr-1" />
-              Audio available
-            </Badge>
-          </Link>
-        )}
         {selected.sent_to_telegram && (
           <Badge variant="success">
             <Send className="w-3 h-3 mr-1" />
@@ -132,54 +208,61 @@ export default function BriefingsPage() {
         )}
       </div>
 
-      {/* Quick Brief */}
+      {/* Content */}
+      {viewMode === "newspaper" ? (
+        <div className="rounded-xl overflow-hidden border border-border">
+          <NewspaperView briefing={selected} themeId={themeId} />
+        </div>
+      ) : (
+        <CardsView briefing={selected} />
+      )}
+    </div>
+  );
+}
+
+function CardsView({ briefing }: { briefing: Briefing }) {
+  return (
+    <div className="space-y-6">
       <Card>
-        <CardHeader>
-          <CardTitle>Quick Brief</CardTitle>
-        </CardHeader>
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold text-foreground">Quick Brief</h3>
+        </div>
         <div className="whitespace-pre-wrap text-sm text-muted leading-relaxed">
-          {selected.quick_brief}
+          {briefing.quick_brief}
         </div>
       </Card>
 
-      {/* Smart Summary */}
       <Card>
-        <CardHeader>
-          <CardTitle>Smart Summary</CardTitle>
-        </CardHeader>
-        <div className="prose prose-invert prose-sm max-w-none text-muted leading-relaxed">
-          <div
-            dangerouslySetInnerHTML={{
-              __html: selected.smart_summary.replace(/\n/g, "<br/>"),
-            }}
-          />
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold text-foreground">
+            Smart Summary
+          </h3>
+        </div>
+        <div className="whitespace-pre-wrap text-sm text-muted leading-relaxed">
+          {briefing.smart_summary}
         </div>
       </Card>
 
-      {/* Deep Dive */}
-      {selected.deep_dive && (
+      {briefing.deep_dive && (
         <Card>
-          <CardHeader>
-            <CardTitle>Deep Dive</CardTitle>
-          </CardHeader>
-          <div className="prose prose-invert prose-sm max-w-none text-muted leading-relaxed">
-            <div
-              dangerouslySetInnerHTML={{
-                __html: selected.deep_dive.replace(/\n/g, "<br/>"),
-              }}
-            />
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-foreground">Deep Dive</h3>
+          </div>
+          <div className="whitespace-pre-wrap text-sm text-muted leading-relaxed">
+            {briefing.deep_dive}
           </div>
         </Card>
       )}
 
-      {/* Top accounts */}
-      {selected.top_accounts.length > 0 && (
+      {briefing.top_accounts.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle>Key Accounts</CardTitle>
-          </CardHeader>
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-foreground">
+              Key Accounts
+            </h3>
+          </div>
           <div className="flex flex-wrap gap-2">
-            {selected.top_accounts.map((account) => (
+            {briefing.top_accounts.map((account) => (
               <Badge key={account} variant="default">
                 @{account}
               </Badge>

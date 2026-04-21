@@ -28,6 +28,7 @@ CREATE TABLE public.profiles (
   priority_topics TEXT[] DEFAULT '{}',
   favorite_accounts TEXT[] DEFAULT '{}',
   ignored_accounts TEXT[] DEFAULT '{}',
+  briefing_theme TEXT DEFAULT 'golden',
   timezone TEXT DEFAULT 'America/Argentina/Buenos_Aires',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
